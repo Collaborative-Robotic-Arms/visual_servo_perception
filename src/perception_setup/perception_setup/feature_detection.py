@@ -1,26 +1,28 @@
+#! /usr/bin/env python3
+
 import rclpy
 from rclpy.node import Node
 import cv2
 from sensor_msgs.msg import Image
-from geometry_msgs.msg import PointStamped  # Import PointStamped message
+from geometry_msgs.msg import PointStamped  
 from cv_bridge import CvBridge, CvBridgeError
-import numpy as np  # Import numpy
+import numpy as np  
 
 class FeatureDetector(Node):
     def __init__(self):
         super().__init__('feature_detector_node')
         self.bridge = CvBridge()
         
-        # 1. --- SETUP ARUCO DETECTION ---
         self.aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
         self.aruco_params = cv2.aruco.DetectorParameters()
         self.get_logger().info("ArUco detector initialized.")
 
-        # 2. --- CREATE PUBLISHER ---
-        # This publisher will send the coordinates of the detected feature
+        # Publisher for the feature coordinates
         self.publisher_ = self.create_publisher(PointStamped, '/feature_coordinates', 10)
         
-        # 3. --- CREATE SUBSCRIBER ---
+        # --- 1. ADD A PUBLISHER FOR THE DEBUG IMAGE ---
+        self.image_publisher_ = self.create_publisher(Image, '/processed_image', 10)
+        
         self.subscription = self.create_subscription(
             Image,
             '/camera/image_raw',
@@ -29,16 +31,20 @@ class FeatureDetector(Node):
         self.get_logger().info("Node started, subscribing to /camera/image_raw")
 
     def image_callback(self, msg):
-        """Callback function to process incoming image messages."""
+        print("dakhlt hena")
+
         try:
+            print("dakhlt el try")
             cv_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
+            print("3adet awel satr")
         except CvBridgeError as e:
             self.get_logger().error(f'Failed to convert image: {e}')
             return
-
+        print("3adet el execpt")
         corners, ids, rejected = cv2.aruco.detectMarkers(cv_image, self.aruco_dict, parameters=self.aruco_params)
-
+        print("1")
         if ids is not None:
+            print("dakhlt el if")
             marker_corners = corners[0][0]
             
             center_x = int(np.mean(marker_corners[:, 0]))
@@ -48,29 +54,36 @@ class FeatureDetector(Node):
             point_msg.header.stamp = self.get_clock().now().to_msg()
             point_msg.header.frame_id = msg.header.frame_id
             
-            # (u, v) are the pixel coordinates. z is no longer needed here.
-            point_msg.point.x = float(center_x)  # u-coordinate
-            point_msg.point.y = float(center_y)  # v-coordinate
+            point_msg.point.x = float(center_x)
+            point_msg.point.y = float(center_y)
             point_msg.point.z = 0.0
             
             self.publisher_.publish(point_msg)
             
+            # Draw visualizations on the image
+            print("able el cv2.aruco")
             cv2.aruco.drawDetectedMarkers(cv_image, corners, ids)
             cv2.circle(cv_image, (center_x, center_y), 7, (0, 0, 255), -1)
-
-        cv2.imshow("Detection Window", cv_image)
-        cv2.waitKey(1)
-
+            print("ba3d el cv")
+        # --- 2. REPLACE cv2.imshow() WITH THE PUBLISHER ---
+        # Instead of trying to display a window, publish the processed image
+        try:
+            print("dakhlt tany try")
+            processed_image_msg = self.bridge.cv2_to_imgmsg(cv_image, "bgr8")
+            self.image_publisher_.publish(processed_image_msg)
+        except CvBridgeError as e:
+            self.get_logger().error(f'Failed to convert processed image: {e}')
+        print ("3adet el except el tanya")
 def main(args=None):
     rclpy.init(args=args)
     feature_detector = FeatureDetector()
+    print("gowa el main abl el try")
     try:
         rclpy.spin(feature_detector)
     except KeyboardInterrupt:
         pass
     finally:
         feature_detector.destroy_node()
-        cv2.destroyAllWindows()
         rclpy.shutdown()
 
 if __name__ == '__main__':

@@ -16,8 +16,8 @@ class Step2(Node):
 
     def cb(self, msg):
         try:
-            img = self.bridge.imgmsg_to_cv2(msg, "bgr8")
-            cv2.imshow("test", img)
+            # img = self.bridge.imgmsg_to_cv2(msg, "bgr8")
+            # cv2.imshow("test", img)
             cv2.waitKey(1)
         except Exception as e:
             self.get_logger().error(f"Error: {e}")

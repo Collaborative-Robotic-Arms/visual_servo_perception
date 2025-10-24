@@ -1,0 +1,24 @@
+[0.021s] Invoking command in '/home/mariamelsebaey/gp_ws/src/visual_servo_perception/build/perception_setup': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/mariamelsebaey/gp_ws/install/moveit_configs_utils:/opt/ros/jazzy DEBUGINFOD_URLS=https://debuginfod.ubuntu.com /usr/bin/cmake --build /home/mariamelsebaey/gp_ws/src/visual_servo_perception/build/perception_setup -- -j8 -l8
+[0.079s] Invoked command in '/home/mariamelsebaey/gp_ws/src/visual_servo_perception/build/perception_setup' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/mariamelsebaey/gp_ws/install/moveit_configs_utils:/opt/ros/jazzy DEBUGINFOD_URLS=https://debuginfod.ubuntu.com /usr/bin/cmake --build /home/mariamelsebaey/gp_ws/src/visual_servo_perception/build/perception_setup -- -j8 -l8
+[0.093s] Invoking command in '/home/mariamelsebaey/gp_ws/src/visual_servo_perception/build/perception_setup': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/mariamelsebaey/gp_ws/install/moveit_configs_utils:/opt/ros/jazzy DEBUGINFOD_URLS=https://debuginfod.ubuntu.com /usr/bin/cmake --install /home/mariamelsebaey/gp_ws/src/visual_servo_perception/build/perception_setup
+[0.107s] -- Install configuration: ""
+[0.107s] -- Up-to-date: /home/mariamelsebaey/gp_ws/src/visual_servo_perception/install/perception_setup/lib/perception_setup/camera_driver.py
+[0.107s] -- Installing: /home/mariamelsebaey/gp_ws/src/visual_servo_perception/install/perception_setup/lib/perception_setup/feature_detection.py
+[0.108s] -- Up-to-date: /home/mariamelsebaey/gp_ws/src/visual_servo_perception/install/perception_setup/lib/perception_setup/depth_estimation.py
+[0.108s] -- Up-to-date: /home/mariamelsebaey/gp_ws/src/visual_servo_perception/install/perception_setup/lib/perception_setup/feature_detection_minimal.py
+[0.108s] -- Up-to-date: /home/mariamelsebaey/gp_ws/src/visual_servo_perception/install/perception_setup/share/ament_index/resource_index/package_run_dependencies/perception_setup
+[0.108s] -- Up-to-date: /home/mariamelsebaey/gp_ws/src/visual_servo_perception/install/perception_setup/share/ament_index/resource_index/parent_prefix_path/perception_setup
+[0.108s] -- Up-to-date: /home/mariamelsebaey/gp_ws/src/visual_servo_perception/install/perception_setup/share/perception_setup/environment/ament_prefix_path.sh
+[0.108s] -- Up-to-date: /home/mariamelsebaey/gp_ws/src/visual_servo_perception/install/perception_setup/share/perception_setup/environment/ament_prefix_path.dsv
+[0.108s] -- Up-to-date: /home/mariamelsebaey/gp_ws/src/visual_servo_perception/install/perception_setup/share/perception_setup/environment/path.sh
+[0.109s] -- Up-to-date: /home/mariamelsebaey/gp_ws/src/visual_servo_perception/install/perception_setup/share/perception_setup/environment/path.dsv
+[0.109s] -- Up-to-date: /home/mariamelsebaey/gp_ws/src/visual_servo_perception/install/perception_setup/share/perception_setup/local_setup.bash
+[0.109s] -- Up-to-date: /home/mariamelsebaey/gp_ws/src/visual_servo_perception/install/perception_setup/share/perception_setup/local_setup.sh
+[0.109s] -- Up-to-date: /home/mariamelsebaey/gp_ws/src/visual_servo_perception/install/perception_setup/share/perception_setup/local_setup.zsh
+[0.109s] -- Up-to-date: /home/mariamelsebaey/gp_ws/src/visual_servo_perception/install/perception_setup/share/perception_setup/local_setup.dsv
+[0.109s] -- Installing: /home/mariamelsebaey/gp_ws/src/visual_servo_perception/install/perception_setup/share/perception_setup/package.dsv
+[0.110s] -- Up-to-date: /home/mariamelsebaey/gp_ws/src/visual_servo_perception/install/perception_setup/share/ament_index/resource_index/packages/perception_setup
+[0.110s] -- Up-to-date: /home/mariamelsebaey/gp_ws/src/visual_servo_perception/install/perception_setup/share/perception_setup/cmake/perception_setupConfig.cmake
+[0.110s] -- Up-to-date: /home/mariamelsebaey/gp_ws/src/visual_servo_perception/install/perception_setup/share/perception_setup/cmake/perception_setupConfig-version.cmake
+[0.110s] -- Up-to-date: /home/mariamelsebaey/gp_ws/src/visual_servo_perception/install/perception_setup/share/perception_setup/package.xml
+[0.111s] Invoked command in '/home/mariamelsebaey/gp_ws/src/visual_servo_perception/build/perception_setup' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/mariamelsebaey/gp_ws/install/moveit_configs_utils:/opt/ros/jazzy DEBUGINFOD_URLS=https://debuginfod.ubuntu.com /usr/bin/cmake --install /home/mariamelsebaey/gp_ws/src/visual_servo_perception/build/perception_setup
