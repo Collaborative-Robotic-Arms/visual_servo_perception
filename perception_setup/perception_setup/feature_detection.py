@@ -8,34 +8,37 @@ from std_msgs.msg import Float64MultiArray  # Used for [u1, v1, u2, v2, u3, v3]
 from cv_bridge import CvBridge, CvBridgeError
 import numpy as np  
 
+# Inside feature_detection.py
 class FeatureDetector(Node):
     def __init__(self):
         super().__init__('feature_detector_node')
         self.bridge = CvBridge()
-        # --- Parameters ---    
-        self.declare_parameter('marker_size_cm', 8.0)
+        
+        # --- PARAMETERS ---
+        self.declare_parameter('image_topic', '/cameraAR4/image_raw')
+        self.declare_parameter('feature_topic', '/feature_coordinates_6D')
+        self.declare_parameter('marker_size_cm', 5.0)
+        
+        # Get parameters
+        image_topic = self.get_parameter('image_topic').get_parameter_value().string_value
+        feature_topic = self.get_parameter('feature_topic').get_parameter_value().string_value
         self.marker_size = self.get_parameter('marker_size_cm').get_parameter_value().double_value
 
         self.aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_5X5_250)
         self.aruco_params = cv2.aruco.DetectorParameters()
-        self.get_logger().info("ArUco detector initialized.")
-
-        # Publisher for the 3x2=6 feature coordinates (u1, v1, u2, v2, u3, v3)
-        self.publisher_ = self.create_publisher(
-            Float64MultiArray, 
-            '/feature_coordinates_6D', # <-- Updated Topic Name to reflect 6D data
-            10)
         
-        self.image_publisher_ = self.create_publisher(Image, '/processed_image', 10)
+        # --- PUBLISHERS & SUBSCRIBERS ---
+        # Use the parameters for topic names
+        self.publisher_ = self.create_publisher(Float64MultiArray, feature_topic, 10)
+        self.image_publisher_ = self.create_publisher(Image, image_topic + '/processed', 10)
         
         self.image_subscription = self.create_subscription(
             Image,
-            '/cameraAR4/image_raw',
+            image_topic,
             self.image_callback,
             10)
-   
-        self.get_logger().info("Node started, subscribing to /cameraAR4/image_raw")
-        self.get_logger().info("Publishing 6D feature coordinates to /feature_coordinates_6D")
+            
+        self.get_logger().info(f"Detector started on: {image_topic} -> {feature_topic}")
 
     def image_callback(self, msg):
         try:
@@ -55,17 +58,18 @@ class FeatureDetector(Node):
             
             # --- MODIFICATION: Select the first 3 corners (3x2 array) ---
             # Indices [0], [1], and [2] are selected.
-            selected_corners = marker_corners[:3] 
             
             # --- Debugging Output ---
             self.get_logger().info("--- Selected Corners ---", throttle_duration_sec=0.5)
             # Print statements to visualize the data being sent
-            self.get_logger().info(f"Corner 1 (u, v): ({selected_corners[0][0]:.1f}, {selected_corners[0][1]:.1f})", throttle_duration_sec=0.5)
-            self.get_logger().info(f"Corner 2 (u, v): ({selected_corners[1][0]:.1f}, {selected_corners[1][1]:.1f})", throttle_duration_sec=0.5)
-            self.get_logger().info(f"Corner 3 (u, v): ({selected_corners[2][0]:.1f}, {selected_corners[2][1]:.1f})", throttle_duration_sec=0.5)
+            self.get_logger().info(f"Corner 1 (u, v): ({marker_corners[0][0]:.1f}, {marker_corners[0][1]:.1f})", throttle_duration_sec=0.5)
+            self.get_logger().info(f"Corner 2 (u, v): ({marker_corners[1][0]:.1f}, {marker_corners[1][1]:.1f})", throttle_duration_sec=0.5)
+            self.get_logger().info(f"Corner 3 (u, v): ({marker_corners[2][0]:.1f}, {marker_corners[2][1]:.1f})", throttle_duration_sec=0.5)
+            self.get_logger().info(f"Corner 4 (u, v): ({marker_corners[3][0]:.1f}, {marker_corners[3][1]:.1f})", throttle_duration_sec=0.5)
+            
             
             # Flatten the (3, 2) array into a 6-element list: [u1, v1, u2, v2, u3, v3]
-            flat_corners = selected_corners.flatten().tolist()
+            flat_corners = marker_corners.flatten().tolist()
             
             multiarray_msg = Float64MultiArray()
             multiarray_msg.data = flat_corners

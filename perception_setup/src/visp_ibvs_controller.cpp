@@ -15,6 +15,7 @@
 #include <algorithm> 
 
 #define NODE_NAME "visp_ibvs_controller"
+// --- CHANGE 1: Revert to 3 features (Triangle) ---
 #define NUM_FEATURES 3 
 
 class VispIBVSController : public rclcpp::Node
@@ -22,21 +23,25 @@ class VispIBVSController : public rclcpp::Node
 public:
     VispIBVSController() : Node(NODE_NAME)
     {
-        // Gain - Lowered slightly for simulator stability
+        // Parameters
+        this->declare_parameter("target_depth", 0.20);   
+        this->declare_parameter("marker_size", 0.05);    
+        
         servo_.setLambda(0.2); 
         servo_.setInteractionMatrixType(vpServo::CURRENT);
         servo_.setServo(vpServo::EYEINHAND_CAMERA);
 
         cam_initialized_ = false;
-        
-        // FRAME ID: Kept from your simulator code
         cam_frame_id_ = "ar4_camera_link"; 
+        
+        // --- CHANGE 4: Initialize Depth safely (Prevent Z=0 Singularity) ---
+        current_depth_z_ = 0.4; 
 
-        // Smoothing variables
+        // Smoothing
         v_prev_ = vpColVector(6, 0.0);
-        alpha_ = 0.1; // Increased slightly for smoother Sim behavior
+        alpha_ = 0.1; 
 
-        // --- ROS 2 Communication Setup ---
+        // Subscribers
         cam_info_sub_ = this->create_subscription<sensor_msgs::msg::CameraInfo>(
             "cameraAR4/camera_info", 10,
             std::bind(&VispIBVSController::infoCallback, this, std::placeholders::_1));
@@ -55,31 +60,44 @@ public:
         error_pub_ = this->create_publisher<std_msgs::msg::Float64>(
             "/vs/error_norm", 10);
 
-        RCLCPP_INFO(this->get_logger(), "ViSP IBVS Controller (Sim) started.");
+        RCLCPP_INFO(this->get_logger(), "ViSP IBVS Controller (3-Point Mode) started.");
     }
 
 private:
     void infoCallback(const sensor_msgs::msg::CameraInfo::SharedPtr msg)
     {
         if (cam_initialized_) return; 
+        
         double px = msg->k[0]; double py = msg->k[4]; 
         double u0 = msg->k[2]; double v0 = msg->k[5]; 
         cam_.initPersProjWithoutDistortion(px, py, u0, v0);
 
-        // Define Desired Features (Calibrated)
-        // Ensure these pixel values match the resolution in your Simulator Camera
-        const double Z_desired = 0.2093; 
-        double desired_pixels[NUM_FEATURES * 2] = {
-            380.0, 291.0,  
-            378.0, 432.0,  
-            236.0, 432.0    
-        };
+        double Z_des = this->get_parameter("target_depth").as_double();
+        double L = this->get_parameter("marker_size").as_double();
+        double h = L / 2.0; 
+
+        // --- CHANGE 2: Define only 3 points (Top-Left, Top-Right, Bottom-Right) ---
+        // We skip the 4th point (Bottom-Left)
+        double X[3] = {-h,  h,  h};
+        double Y[3] = {-h, -h,  h};
+
+        RCLCPP_INFO(this->get_logger(), "Computing Dynamic Goal (3 Points) for Z=%.2f m", Z_des);
 
         for (int i = 0; i < NUM_FEATURES; ++i) {
-            double x_d = (desired_pixels[i*2] - cam_.get_u0()) / cam_.get_px();
-            double y_d = (desired_pixels[i*2+1] - cam_.get_v0()) / cam_.get_py();
-            s_star_[i].set_x(x_d); s_star_[i].set_y(y_d); s_star_[i].set_Z(Z_desired); 
-            s_curr_[i].set_x(x_d); s_curr_[i].set_y(y_d); s_curr_[i].set_Z(Z_desired); 
+            double u_des = u0 + px * (X[i] / Z_des);
+            double v_des = v0 + py * (Y[i] / Z_des);
+
+            double x_n = (u_des - u0) / px;
+            double y_n = (v_des - v0) / py;
+
+            s_star_[i].set_x(x_n);
+            s_star_[i].set_y(y_n);
+            s_star_[i].set_Z(Z_des); 
+            
+            s_curr_[i].set_x(x_n);
+            s_curr_[i].set_y(y_n);
+            s_curr_[i].set_Z(Z_des); 
+
             servo_.addFeature(s_curr_[i], s_star_[i]);
         }
         cam_initialized_ = true;
@@ -92,89 +110,67 @@ private:
     void featureCallback(const std_msgs::msg::Float64MultiArray::SharedPtr msg)
     {
         if (!cam_initialized_) return;
-        if (msg->data.size() != NUM_FEATURES * 2) return;
+        
+        // --- CHANGE 3: Accept 8 numbers (4 points) but only use 3 ---
+        // Check if we have AT LEAST 6 numbers (3 points * 2 coordinates)
+        if (msg->data.size() < NUM_FEATURES * 2) return;
 
-        // 1. Update Features
+        // Loop runs 0, 1, 2. 
+        // It reads data[0,1], data[2,3], data[4,5].
+        // It completely ignores data[6,7] (the 4th point).
         for (int i = 0; i < NUM_FEATURES; ++i) {
             double x_norm = (msg->data[i*2] - cam_.get_u0()) / cam_.get_px();
             double y_norm = (msg->data[i*2+1] - cam_.get_v0()) / cam_.get_py();
             s_curr_[i].set_x(x_norm); s_curr_[i].set_y(y_norm); s_curr_[i].set_Z(current_depth_z_); 
         }
 
-        // 2. Compute Raw Optical Velocity
         vpColVector v_opt(6, 0.0);
         double error_norm = 0.0;
         try {
             v_opt = servo_.computeControlLaw();
             error_norm = servo_.getError().sumSquare(); 
         } catch (...) { v_opt = 0.0; }
+
+        // Publish Error
         std_msgs::msg::Float64 err_msg;
         err_msg.data = error_norm;
         error_pub_->publish(err_msg);
-        // Sanity Check
+        
+        // Safety Checks
         for(int k=0; k<6; k++) if (!std::isfinite(v_opt[k])) v_opt = 0.0;
 
-        // 3. Scaling
-        double max_lin = 0.05; // 5 cm/s
-        double max_rot = 0.1;  // 0.1 rad/s
-
-        // Linear Scale
+        // Scaling (Safety Limits)
+        double max_lin = 0.1; 
+        double max_rot = 0.5; 
+        
         double lin_mag = std::sqrt(v_opt[0]*v_opt[0] + v_opt[1]*v_opt[1] + v_opt[2]*v_opt[2]);
-        if (lin_mag > max_lin) {
-            double scale = max_lin / lin_mag;
-            v_opt[0] *= scale; v_opt[1] *= scale; v_opt[2] *= scale;
-        }
+        if (lin_mag > max_lin) v_opt *= (max_lin / lin_mag);
 
-        // Angular Scale
         double rot_mag = std::sqrt(v_opt[3]*v_opt[3] + v_opt[4]*v_opt[4] + v_opt[5]*v_opt[5]);
         if (rot_mag > max_rot) {
             double scale = max_rot / rot_mag;
             v_opt[3] *= scale; v_opt[4] *= scale; v_opt[5] *= scale;
         }
 
-        // 4. Low Pass Filter
+        // Smoothing
         v_opt = v_opt * alpha_ + v_prev_ * (1.0 - alpha_);
         v_prev_ = v_opt;
 
-        if (error_norm < 1e-3) {
-             v_opt = 0.0;
-             v_prev_ = 0.0; 
-        }
+        if (error_norm < 1e-3) { v_opt = 0.0; v_prev_ = 0.0; }
 
         auto velocity_msg = std::make_shared<geometry_msgs::msg::TwistStamped>();
         velocity_msg->header.stamp = this->get_clock()->now(); 
         velocity_msg->header.frame_id = cam_frame_id_; 
-        
-        // ---------------------------------------------------------
-        // 5. STANDARD SIMULATOR MAPPING (OPTICAL -> GEOMETRIC)
-        // ---------------------------------------------------------
-        // ViSP (Optical Frame):
-        //   [0] X = Right
-        //   [1] Y = Down
-        //   [2] Z = Forward (Depth)
-        //
-        // Robot Camera Link (Standard Geometric Frame):
-        //   X = Forward
-        //   Y = Left
-        //   Z = Up
-        // ---------------------------------------------------------
-        
-        // Mapping Linear Velocities
-        velocity_msg->twist.linear.x =  v_opt[2];  // Optical Z (Depth) -> Robot X (Forward)
-        velocity_msg->twist.linear.y = -v_opt[0];  // Optical X (Right) -> Robot Y (Left)
-        velocity_msg->twist.linear.z = -v_opt[1];  // Optical Y (Down)  -> Robot Z (Up)
 
-        // Mapping Angular Velocities (Rotation follows Right Hand Rule)
-        velocity_msg->twist.angular.x =  v_opt[5]; // Roll around Opt Z -> Roll around Rob X
-        velocity_msg->twist.angular.y = -v_opt[3]; // Pitch around Opt X -> Pitch around Rob Y
-        velocity_msg->twist.angular.z = -v_opt[4]; // Yaw around Opt Y   -> Yaw around Rob Z
+        // Map Optical -> Geometric
+        velocity_msg->twist.linear.x =  v_opt[2]; 
+        velocity_msg->twist.linear.y = -v_opt[0]; 
+        velocity_msg->twist.linear.z = -v_opt[1]; 
+        velocity_msg->twist.angular.x =  v_opt[5];
+        velocity_msg->twist.angular.y = -v_opt[3];
+        velocity_msg->twist.angular.z = -v_opt[4];
         
         velocity_pub_->publish(*velocity_msg);
-
-        // Debug output to check if "Forward" is actually driving X now
-        RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 500,
-            "SENT (Robot Frame): Vx=%.3f (Down) Vy=%.3f (Left) Vz=%.3f (Fwd)",
-            velocity_msg->twist.linear.x, velocity_msg->twist.linear.y, velocity_msg->twist.linear.z);
     }
 
     rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr feature_sub_; 
@@ -188,8 +184,6 @@ private:
     bool cam_initialized_; 
     double current_depth_z_;
     std::string cam_frame_id_; 
-    
-    // Smoothing members
     vpColVector v_prev_;
     double alpha_;
 };

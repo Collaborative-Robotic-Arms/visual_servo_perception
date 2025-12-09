@@ -37,7 +37,7 @@ ament_target_dependencies(z_query_tool rclcpp tf2_ros tf2 tf2_geometry_msgs)
 target_link_libraries(z_query_tool tf2_ros::tf2_ros tf2::tf2 tf2_geometry_msgs::tf2_geometry_msgs)
 
 # 3. RPY Pose Commander (NEW)
-add_executable(pose_commander src/pose_commander.cpp)
+add_executable(rpy_pose_commander src/pose_commander.cpp)
 ament_target_dependencies(rpy_pose_commander 
   rclcpp 
   geometry_msgs 
@@ -59,6 +59,8 @@ install(PROGRAMS
   perception_setup/plot_pose.py
   perception_setup/joint_plotter.py
   perception_setup/velocity_smoother.py
+  perception_setup/aruco_homography.py
+  perception_setup/visualize_target.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
