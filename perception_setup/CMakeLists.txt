@@ -61,6 +61,7 @@ install(PROGRAMS
   perception_setup/velocity_smoother.py
   perception_setup/aruco_homography.py
   perception_setup/visualize_target.py
+  config/ibvs_params.yaml
   DESTINATION lib/${PROJECT_NAME}
 )
 
