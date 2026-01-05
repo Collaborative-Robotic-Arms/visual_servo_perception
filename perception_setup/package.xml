@@ -9,20 +9,26 @@
 
   <buildtool_depend>ament_cmake</buildtool_depend>
   <buildtool_depend>ament_cmake_python</buildtool_depend>
-  <build_depend>visp</build_depend>
-  <build_depend>tf2_ros</build_depend>
-  <build_depend>tf2</build_depend>
+
+  <depend>rclcpp</depend>
+  <depend>cv_bridge</depend>
+  <depend>image_transport</depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>visp</depend>
+  <depend>opencv</depend>
+  <depend>visualization_msgs</depend>
+  <depend>tf2</depend>
+  <depend>tf2_ros</depend>
+  <depend>tf2_geometry_msgs</depend>  
   <depend>moveit_ros_planning_interface</depend>
-  <build_depend>tf2_geometry_msgs</build_depend>
+  
   <exec_depend>rclpy</exec_depend>
-  <exec_depend>sensor_msgs</exec_depend>
-  <exec_depend>cv_bridge</exec_depend>
-  <exec_depend>geometry_msgs</exec_depend>
-  <exec_depend>std_msgs</exec_depend>
-  <exec_depend>visualization_msgs</exec_depend>
+  <exec_depend>camera_info_manager_py</exec_depend>
+
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
-  <exec_depend>camera_info_manager_py</exec_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

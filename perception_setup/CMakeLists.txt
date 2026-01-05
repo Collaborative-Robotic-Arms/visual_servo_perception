@@ -18,9 +18,13 @@ find_package(tf2_ros REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 
-# --- NEW: MoveIt Dependency ---
+# --- NEW: Dependencies for Brick Tracking ---
+find_package(cv_bridge REQUIRED)
+find_package(image_transport REQUIRED)
+find_package(OpenCV REQUIRED)
+# --------------------------------------------
+
 find_package(moveit_ros_planning_interface REQUIRED)
-# ------------------------------
 
 include_directories(
   ${VISP_INCLUDE_DIRS}
@@ -28,7 +32,15 @@ include_directories(
 
 # 1. VISP IBVS Controller
 add_executable(visp_ibvs_controller src/visp_ibvs_controller.cpp)
-ament_target_dependencies(visp_ibvs_controller rclcpp sensor_msgs geometry_msgs std_msgs)
+ament_target_dependencies(visp_ibvs_controller 
+  rclcpp 
+  sensor_msgs 
+  geometry_msgs 
+  std_msgs
+  tf2
+  tf2_ros
+  tf2_geometry_msgs
+)
 target_link_libraries(visp_ibvs_controller ${VISP_LIBRARIES})
 
 # 2. Z Query Tool
@@ -36,22 +48,56 @@ add_executable(z_query_tool src/z_value.cpp)
 ament_target_dependencies(z_query_tool rclcpp tf2_ros tf2 tf2_geometry_msgs)
 target_link_libraries(z_query_tool tf2_ros::tf2_ros tf2::tf2 tf2_geometry_msgs::tf2_geometry_msgs)
 
-# 3. RPY Pose Commander (NEW)
+# 3. RPY Pose Commander
 add_executable(pose_commander src/pose_commander.cpp)
-ament_target_dependencies(rpy_pose_commander 
+ament_target_dependencies(pose_commander 
   rclcpp 
   geometry_msgs 
   tf2 
   tf2_geometry_msgs 
   moveit_ros_planning_interface
 )
+# Image Saver Tool
+add_executable(image_saver src/image_saver.cpp)
+ament_target_dependencies(image_saver 
+  rclcpp 
+  sensor_msgs 
+  cv_bridge 
+  image_transport 
+  OpenCV
+)
+
+
+# 4. Brick Tracking (NEW)
+add_executable(brick_tracking src/brick_tracking.cpp)
+ament_target_dependencies(brick_tracking 
+  rclcpp 
+  sensor_msgs 
+  std_msgs 
+  cv_bridge 
+  image_transport
+)
+# Link ViSP and OpenCV (Required for Moving Edges and Hough Transform)
+target_link_libraries(brick_tracking ${VISP_LIBRARIES} ${OpenCV_LIBRARIES})
+
+# 4. Brick Tracking (NEW)
+add_executable(trial_controller src/controller_trial.cpp)
+ament_target_dependencies(trial_controller 
+  rclcpp 
+  sensor_msgs 
+  std_msgs 
+  cv_bridge 
+  image_transport
+)
+# Link ViSP and OpenCV (Required for Moving Edges and Hough Transform)
+target_link_libraries(trial_controller ${VISP_LIBRARIES} ${OpenCV_LIBRARIES})
 
 # Install Python scripts
 install(PROGRAMS
   perception_setup/camera_driver.py
-  perception_setup/feature_detection.py
+  perception_setup/feature_detection_bricks.py
   perception_setup/depth_estimation.py
-  perception_setup/feature_detection_minimal.py
+  perception_setup/feature_detection_aruco.py
   perception_setup/mock_vel.py
   perception_setup/plot_results.py
   perception_setup/data_logger.py
@@ -59,6 +105,8 @@ install(PROGRAMS
   perception_setup/plot_pose.py
   perception_setup/joint_plotter.py
   perception_setup/velocity_smoother.py
+  perception_setup/plot_workspace.py
+  perception_setup/brick_detection_pca.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -66,7 +114,10 @@ install(PROGRAMS
 install(TARGETS 
   visp_ibvs_controller
   z_query_tool 
-  rpy_pose_commander
+  pose_commander
+  brick_tracking  
+  image_saver
+  trial_controller
   DESTINATION lib/${PROJECT_NAME}
 )
 
