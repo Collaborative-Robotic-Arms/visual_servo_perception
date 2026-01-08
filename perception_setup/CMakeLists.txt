@@ -96,6 +96,7 @@ target_link_libraries(trial_controller ${VISP_LIBRARIES} ${OpenCV_LIBRARIES})
 install(PROGRAMS
   perception_setup/camera_driver.py
   perception_setup/feature_detection_bricks.py
+  perception_setup/feature_detection_bricks_irl.py
   perception_setup/depth_estimation.py
   perception_setup/feature_detection_aruco.py
   perception_setup/mock_vel.py
@@ -106,7 +107,7 @@ install(PROGRAMS
   perception_setup/joint_plotter.py
   perception_setup/velocity_smoother.py
   perception_setup/plot_workspace.py
-  perception_setup/brick_detection_pca.py
+  perception_setup/feature_detection_fisheye.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
