@@ -100,7 +100,6 @@ install(PROGRAMS
   perception_setup/depth_estimation.py
   perception_setup/feature_detection_aruco.py
   perception_setup/mock_vel.py
-  perception_setup/plot_results.py
   perception_setup/data_logger.py
   perception_setup/pose_validation_logger.py
   perception_setup/plot_pose.py
@@ -108,6 +107,12 @@ install(PROGRAMS
   perception_setup/velocity_smoother.py
   perception_setup/plot_workspace.py
   perception_setup/feature_detection_fisheye.py
+  perception_setup/feature_detection_irl_fisheye.py
+  perception_setup/target_generator.py
+  perception_setup/bricks_homography.py
+  perception_setup/grasp_shifting_node.py
+  perception_setup/ground_truth.py
+  perception_setup/visualizer.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -121,6 +126,8 @@ install(TARGETS
   trial_controller
   DESTINATION lib/${PROJECT_NAME}
 )
+# Install Launch Files
+install(DIRECTORY launch DESTINATION share/${PROJECT_NAME})
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)

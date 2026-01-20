@@ -11,65 +11,64 @@ class AreaDepthEstimator(Node):
         super().__init__('area_depth_estimator')
 
         # --- Parameters ---
-        self.declare_parameter('desired_depth', 0.2114) 
+        self.declare_parameter('desired_depth', 0.2) 
+        # We start with a dummy default, but this will be updated dynamically
         self.declare_parameter('desired_feature_area', 7056.9) 
         self.declare_parameter('smoothing_factor', 0.2)
 
         # --- State ---
         self.current_depth_estimate = self.get_parameter('desired_depth').value
+        self.dynamic_desired_area = self.get_parameter('desired_feature_area').value
         
         # --- Subscribers ---
-        # Trigger calculation immediately upon receiving data (Event Driven)
+        # 1. Features
         self.feature_sub = self.create_subscription(
             Float64MultiArray, '/feature_coordinates_6D', self.feature_callback, 10)
         
-        # --- Publisher ---
-        self.depth_pub = self.create_publisher(Float64, '/camera_to_marker_depth', 10)
+        # 2. Desired Features (NEW: Calculate target area dynamically)
+        self.desired_features_sub = self.create_subscription(
+            Float64MultiArray, 
+            '/visual_servo/desired_features', 
+            self.desired_features_callback, 
+            10
+        )
         
-        self.get_logger().info('Depth Estimator Started. Optimized event-driven mode.')
+        # --- Publisher ---
+        self.depth_pub = self.create_publisher(Float64, '/camera_to_brick_depth', 10)
+        
+        self.get_logger().info('Depth Estimator Started. Dynamic Area Calculation Enabled.')
+
+    def desired_features_callback(self, msg):
+        """Calculates area of the DESIRED polygon to set the scale"""
+        if not msg.data: return
+        
+        # Use the same area calculation logic
+        area = self.calculate_area_from_flat_list(msg.data)
+        
+        if area > 100.0:
+            self.dynamic_desired_area = area
+            # print(f"Desired Area Updated: {area:.1f}")
 
     def feature_callback(self, msg):
         # Start Clock
         t_start = time.perf_counter()
 
-        data = msg.data # Access raw list/array from ROS message
+        data = msg.data 
         if not data: return
 
         # --- OPTIMIZED AREA CALCULATION ---
-        area = 0.0
-        
-        # FAST PATH: If we have exactly 4 points (8 numbers), skip NumPy overhead entirely.
-        # This is significantly faster for small arrays.
-        if len(data) == 8:
-            # Unrolled Shoelace Formula for 4 points
-            # Points: (x0,y0), (x1,y1), (x2,y2), (x3,y3)
-            # data indices: 0,1,   2,3,   4,5,   6,7
-            x0, y0 = data[0], data[1]
-            x1, y1 = data[2], data[3]
-            x2, y2 = data[4], data[5]
-            x3, y3 = data[6], data[7]
-
-            # Shoelace: 0.5 * |(x0y1 + x1y2 + x2y3 + x3y0) - (y0x1 + y1x2 + y2x3 + y3x0)|
-            term1 = x0*y1 + x1*y2 + x2*y3 + x3*y0
-            term2 = y0*x1 + y1*x2 + y2*x3 + y3*x0
-            area = 0.5 * abs(term1 - term2)
-
-        # SLOW PATH: Use NumPy for generic N-point polygons
-        else:
-            if len(data) % 2 != 0 or len(data) < 6: return
-            points = np.array(data).reshape(-1, 2)
-            area = self.calculate_polygon_area_numpy(points)
+        area = self.calculate_area_from_flat_list(data)
 
         # Safety Check
         if area < 100.0: return
 
         # --- DEPTH ESTIMATION ---
         Z_des = self.get_parameter('desired_depth').value
-        Area_des = self.get_parameter('desired_feature_area').value
+        # Use the dynamically updated area
+        Area_des = self.dynamic_desired_area
         alpha = self.get_parameter('smoothing_factor').value
 
         # Depth Law: Z = Z* sqrt(A* / A)
-        # Using pure python math.sqrt is slightly faster for scalars than np.sqrt
         raw_depth_estimate = Z_des * (Area_des / area)**0.5
 
         # Low Pass Filter
@@ -85,19 +84,33 @@ class AreaDepthEstimator(Node):
         dt_ms = (t_end - t_start) * 1000.0
 
         # --- LOGGING ---
-        # Log area, depth, and compute time
         self.get_logger().info(
-            f"Time: {dt_ms:.3f}ms | Area: {area:.1f} | Depth: {self.current_depth_estimate:.3f} m", 
+            f"Time: {dt_ms:.3f}ms | Area: {area:.1f} (Goal: {Area_des:.1f}) | Depth: {self.current_depth_estimate:.3f} m", 
             throttle_duration_sec=0.5
         )
 
-    def calculate_polygon_area_numpy(self, points):
-        """ Fallback for non-4-point polygons """
-        x = points[:, 0]
-        y = points[:, 1]
-        x_shift = np.roll(x, -1)
-        y_shift = np.roll(y, -1)
-        return 0.5 * np.abs(np.dot(x, y_shift) - np.dot(y, x_shift))
+    def calculate_area_from_flat_list(self, data):
+        """Helper to calculate area from [x0, y0, x1, y1...]"""
+        area = 0.0
+        if len(data) == 8:
+            # Fast Shoelace for 4 points
+            x0, y0 = data[0], data[1]
+            x1, y1 = data[2], data[3]
+            x2, y2 = data[4], data[5]
+            x3, y3 = data[6], data[7]
+            term1 = x0*y1 + x1*y2 + x2*y3 + x3*y0
+            term2 = y0*x1 + y1*x2 + y2*x3 + y3*x0
+            area = 0.5 * abs(term1 - term2)
+        else:
+            # Generic
+            if len(data) % 2 != 0 or len(data) < 6: return 0.0
+            points = np.array(data).reshape(-1, 2)
+            x = points[:, 0]
+            y = points[:, 1]
+            x_shift = np.roll(x, -1)
+            y_shift = np.roll(y, -1)
+            area = 0.5 * np.abs(np.dot(x, y_shift) - np.dot(y, x_shift))
+        return area
 
 def main(args=None):
     rclpy.init(args=args)
