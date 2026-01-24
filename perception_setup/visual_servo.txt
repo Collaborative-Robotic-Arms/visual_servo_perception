@@ -1,0 +1,10 @@
+1-ros2 launch dual_arms moveit_dualarms.launch.py 
+2-ros2 run brick_detection advanced_yolo 
+3-ros2 run brick_grasping_model  advanced_grasping_node.py 
+4-ros2 launch perception_setup visual_servo_launch.py
+5-ros2 topic pub /mission/target_brick dual_arms_msgs/msg/Brick "{type: 1}" (may need to publish more than once, so remove the --once tag)
+6-ros2 topic pub /grasp/target_index std_msgs/msg/Int32 "{data: 0}" (may need to publish more than once, so remove the --once tag)
+7-ros2 service call /servo_node/switch_command_type moveit_msgs/srv/ServoCommandType "{command_type: 1}"
+8-ros2 run perception_setup trial_controller
+
+for visualization you can use the marker array (/visual_servo/rviz_markers), and change the frame to ar4_ee_link in rviz
