@@ -12,7 +12,6 @@ class AreaDepthEstimator(Node):
 
         # --- Parameters ---
         self.declare_parameter('desired_depth', 0.2) 
-        # We start with a dummy default, but this will be updated dynamically
         self.declare_parameter('desired_feature_area', 7056.9) 
         self.declare_parameter('smoothing_factor', 0.2)
 
@@ -20,51 +19,55 @@ class AreaDepthEstimator(Node):
         self.current_depth_estimate = self.get_parameter('desired_depth').value
         self.dynamic_desired_area = self.get_parameter('desired_feature_area').value
         
+        # Logging State
+        self.last_logged_desired_area = 0.0
+
         # --- Subscribers ---
-        # 1. Features
         self.feature_sub = self.create_subscription(
             Float64MultiArray, '/feature_coordinates_6D', self.feature_callback, 10)
         
-        # 2. Desired Features (NEW: Calculate target area dynamically)
         self.desired_features_sub = self.create_subscription(
-            Float64MultiArray, 
-            '/visual_servo/desired_features', 
-            self.desired_features_callback, 
-            10
-        )
+            Float64MultiArray, '/visual_servo/desired_features', self.desired_features_callback, 10)
         
         # --- Publisher ---
         self.depth_pub = self.create_publisher(Float64, '/camera_to_brick_depth', 10)
         
-        self.get_logger().info('Depth Estimator Started. Dynamic Area Calculation Enabled.')
+        # Initial Log
+        self.get_logger().info('Depth Estimator Online.')
 
     def desired_features_callback(self, msg):
         """Calculates area of the DESIRED polygon to set the scale"""
         if not msg.data: return
         
-        # Use the same area calculation logic
         area = self.calculate_area_from_flat_list(msg.data)
         
         if area > 100.0:
             self.dynamic_desired_area = area
-            # print(f"Desired Area Updated: {area:.1f}")
+            
+            # --- LOGGING ---
+            # Only log if the desired area has changed significantly (avoid spamming)
+            if abs(self.dynamic_desired_area - self.last_logged_desired_area) > 1.0:
+                self.get_logger().info(f"TARGET UPDATED: Desired Area set to {area:.1f} pixels²")
+                self.last_logged_desired_area = self.dynamic_desired_area
 
     def feature_callback(self, msg):
         # Start Clock
         t_start = time.perf_counter()
 
         data = msg.data 
-        if not data: return
+        if not data:
+            self.get_logger().info("WAITING FOR FEATURES...", throttle_duration_sec=2.0)
+            return
 
         # --- OPTIMIZED AREA CALCULATION ---
         area = self.calculate_area_from_flat_list(data)
 
         # Safety Check
-        if area < 100.0: return
+        if area < 100.0: 
+            return
 
         # --- DEPTH ESTIMATION ---
         Z_des = self.get_parameter('desired_depth').value
-        # Use the dynamically updated area
         Area_des = self.dynamic_desired_area
         alpha = self.get_parameter('smoothing_factor').value
 
@@ -84,8 +87,9 @@ class AreaDepthEstimator(Node):
         dt_ms = (t_end - t_start) * 1000.0
 
         # --- LOGGING ---
+        # Throttled log to show performance without flooding
         self.get_logger().info(
-            f"Time: {dt_ms:.3f}ms | Area: {area:.1f} (Goal: {Area_des:.1f}) | Depth: {self.current_depth_estimate:.3f} m", 
+            f"ESTIMATION | Area: {area:.0f}/{Area_des:.0f} | Depth: {self.current_depth_estimate:.3f}m | Calc: {dt_ms:.2f}ms", 
             throttle_duration_sec=0.5
         )
 

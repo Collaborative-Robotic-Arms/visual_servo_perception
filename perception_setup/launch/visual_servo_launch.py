@@ -12,7 +12,7 @@ def generate_launch_description():
             package=pkg_name,
             executable='feature_detection_fisheye.py',
             name='brick_tracker',
-            #output='screen'
+            output='screen'
         ),
 
         # 2. Perception: Homography Bridge
@@ -28,7 +28,8 @@ def generate_launch_description():
             package=pkg_name,
             executable='depth_estimation.py',
             name='depth_estimator',
-            #output='screen'
+            output='screen',
+            arguments=['--ros-args', '--log-level', 'WARN']
         ),
 
         # 4. Logic: Target Generator (Yellow Box)
@@ -36,7 +37,7 @@ def generate_launch_description():
             package=pkg_name,
             executable='target_generator.py',
             name='target_generator',
-            #output='screen'
+            output='screen'
         ),
 
         # 5. Logic: Grasp Shifting (Cyan Box/Shifted Features)
