@@ -2,6 +2,7 @@
 #include <std_msgs/msg/float64_multi_array.hpp> 
 #include <std_msgs/msg/float64.hpp>
 #include <geometry_msgs/msg/twist_stamped.hpp> 
+#include <sensor_msgs/msg/camera_info.hpp> // NEW: For Camera Info
 
 #include <visp3/visual_features/vpFeaturePoint.h>
 #include <visp3/vs/vpServo.h>
@@ -13,19 +14,19 @@
 #include <fstream>
 #include <iomanip>
 
-#define NODE_NAME "visp_hybrid_aruco"
+#define NODE_NAME "visp_hybrid_aruco_irl"
 #define NUM_FEATURES 4 
 
-class VispHybridAruco : public rclcpp::Node
+class VispHybridArucoIRL : public rclcpp::Node
 {
 public:
-    VispHybridAruco() : Node(NODE_NAME)
+    VispHybridArucoIRL() : Node(NODE_NAME)
     {
-        // --- PHYSICAL LIMITS ---
+        // --- PHYSICAL LIMITS (Tuned for Real Hardware Safety) ---
         this->declare_parameter("max_linear_vel", 0.15); 
         this->declare_parameter("max_angular_vel", 0.5);
-        this->declare_parameter("max_linear_accel", 0.25);
-        this->declare_parameter("max_angular_accel", 1.5);
+        this->declare_parameter("max_linear_accel", 0.1); 
+        this->declare_parameter("max_angular_accel", 1.0); 
 
         // --- GAINS ---
         this->declare_parameter("gain_xy", 0.00015);  
@@ -41,21 +42,15 @@ public:
         
         // Logging
         this->declare_parameter("enable_logging", true);
-        this->declare_parameter("log_file_path", "/home/omar-magdy/vs_log.csv");
+        this->declare_parameter("log_file_path", "/home/omar-magdy/vs_log_irl.csv");
 
-        // --- VISP INIT (HARDCODED) ---
-        double px = 190.68;
-        double py = 190.68;
-        double u0 = 320.0;
-        double v0 = 240.0;
-        
-        cam_.initPersProjWithoutDistortion(px, py, u0, v0);
-        cam_initialized_ = true; 
+        // --- INITIALIZATION STATE ---
+        cam_initialized_ = false;
+        goal_initialized_ = false;
+        cam_frame_id_ = "cameraAR4_optical_frame";
         
         servo_.setInteractionMatrixType(vpServo::CURRENT);
         servo_.setServo(vpServo::EYEINHAND_CAMERA);
-        goal_initialized_ = false;
-        cam_frame_id_ = "ar4_ee_link"; 
         
         // State Init
         sum_err_u_ = 0.0; sum_err_v_ = 0.0; prev_err_u_ = 0.0; prev_err_v_ = 0.0; 
@@ -72,24 +67,46 @@ public:
         }
 
         // --- SUBSCRIBERS ---
+        // NEW: Subscribe to Camera Info to get K matrix
+        cam_info_sub_ = this->create_subscription<sensor_msgs::msg::CameraInfo>(
+            "/cameraAR4/camera_info", 10, std::bind(&VispHybridArucoIRL::cameraInfoCallback, this, std::placeholders::_1));
+
         feature_sub_ = this->create_subscription<std_msgs::msg::Float64MultiArray>(
-            "/visual_servo/shifted_features", 10, std::bind(&VispHybridAruco::featureCallback, this, std::placeholders::_1));
+            "/visual_servo/shifted_features", 10, std::bind(&VispHybridArucoIRL::featureCallback, this, std::placeholders::_1));
 
         desired_feature_sub_ = this->create_subscription<std_msgs::msg::Float64MultiArray>(
-            "/visual_servo/desired_features", 10, std::bind(&VispHybridAruco::desiredFeatureCallback, this, std::placeholders::_1));
+            "/visual_servo/desired_features", 10, std::bind(&VispHybridArucoIRL::desiredFeatureCallback, this, std::placeholders::_1));
 
         depth_sub_ = this->create_subscription<std_msgs::msg::Float64>(
-            "/camera_to_brick_depth", 10, std::bind(&VispHybridAruco::depthCallback, this, std::placeholders::_1));
+            "/camera_to_brick_depth", 10, std::bind(&VispHybridArucoIRL::depthCallback, this, std::placeholders::_1));
 
         velocity_pub_ = this->create_publisher<geometry_msgs::msg::TwistStamped>("/servo_node/delta_twist_cmds", 10);
         error_pub_ = this->create_publisher<std_msgs::msg::Float64>("/vs/error_norm", 10);
 
-        RCLCPP_INFO(this->get_logger(), "Controller Online (Debug Enabled). Using HARDCODED Intrinsics.");
+        RCLCPP_INFO(this->get_logger(), "IRL Controller Waiting for /cameraAR4/camera_info...");
     }
 
-    ~VispHybridAruco() { if (log_file_.is_open()) log_file_.close(); }
+    ~VispHybridArucoIRL() { if (log_file_.is_open()) log_file_.close(); }
 
 private:
+    // NEW: Callback to capture intrinsics
+    void cameraInfoCallback(const sensor_msgs::msg::CameraInfo::SharedPtr msg) {
+        if (!cam_initialized_) {
+            double px = msg->k[0]; // fx
+            double py = msg->k[4]; // fy
+            double u0 = msg->k[2]; // cx
+            double v0 = msg->k[5]; // cy
+            
+            cam_.initPersProjWithoutDistortion(px, py, u0, v0);
+            cam_initialized_ = true;
+            
+            RCLCPP_INFO(this->get_logger(), "✅ Camera Intrinsics Received: fx=%.2f, fy=%.2f, cx=%.2f, cy=%.2f", px, py, u0, v0);
+            
+            // Unsubscribe to save bandwidth (Intrinsics shouldn't change)
+            cam_info_sub_.reset(); 
+        }
+    }
+
     double calculateArea() {
         double area = 0.0;
         for (int i = 0; i < NUM_FEATURES; i++) {
@@ -113,6 +130,12 @@ private:
     }
 
     void desiredFeatureCallback(const std_msgs::msg::Float64MultiArray::SharedPtr msg) {
+        // Guard: Need Camera Info first
+        if (!cam_initialized_) {
+            RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000, "Cannot set goal: Waiting for Camera Info...");
+            return;
+        }
+        
         if (msg->data.size() < 8) return;
         double Z_des = this->get_parameter("target_depth").as_double();
         double u_sum = 0, v_sum = 0;
@@ -129,10 +152,17 @@ private:
         v_des_center_ = v_sum / NUM_FEATURES;
         goal_initialized_ = true;
         v_prev_x_ = 0; v_prev_y_ = 0; v_prev_z_ = 0; w_prev_z_ = 0;
+        RCLCPP_INFO(this->get_logger(), "New Goal Set. Servoing active.");
     }
 
     void featureCallback(const std_msgs::msg::Float64MultiArray::SharedPtr msg)
     {
+        // Guard: Need Camera Info first
+        if (!cam_initialized_) {
+            RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000, "Skipping control: Waiting for Camera Info...");
+            return;
+        }
+
         if (!goal_initialized_ || msg->data.size() < 8) return;
         
         rclcpp::Time now = this->get_clock()->now();
@@ -146,6 +176,7 @@ private:
             double u = msg->data[i*2]; double v = msg->data[i*2+1];
             u_shift_sum += u; v_shift_sum += v;
             
+            // Normalize using parameters from Topic
             s_curr_[i].set_x((u - cam_.get_u0()) / cam_.get_px());
             s_curr_[i].set_y((v - cam_.get_v0()) / cam_.get_py());
             s_curr_[i].set_Z(current_depth_z_); 
@@ -214,10 +245,9 @@ private:
         std_msgs::msg::Float64 err_msg; err_msg.data = err_norm;
         error_pub_->publish(err_msg);
 
-        // --- DEBUG PRINTS (RESTORED) ---
-        // Prints status every 0.5 seconds to the terminal
+        // --- DEBUG PRINTS ---
         RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 500,
-            "ERR: %.2f | AreaErr: %.3f | Vz_cmd: %.3f |  Vx_cmd: %.3f |  Vy_cmd: %.3f | Depth: %.3f" , 
+            "ERR: %.2f | AreaErr: %.3f | Vz: %.3f | Vx: %.3f | Vy: %.3f | Depth: %.2f" , 
             err_norm, area_err, v_out_z, v_out_x, v_out_y, current_depth_z_);
 
         if (log_file_.is_open()) {
@@ -228,6 +258,7 @@ private:
 
     rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr feature_sub_, desired_feature_sub_; 
     rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr depth_sub_; 
+    rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr cam_info_sub_;
     rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr velocity_pub_; 
     rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr error_pub_;
 
@@ -245,7 +276,7 @@ private:
 
 int main(int argc, char **argv) {
     rclcpp::init(argc, argv);
-    rclcpp::spin(std::make_shared<VispHybridAruco>());
+    rclcpp::spin(std::make_shared<VispHybridArucoIRL>());
     rclcpp::shutdown();
     return 0;
 }

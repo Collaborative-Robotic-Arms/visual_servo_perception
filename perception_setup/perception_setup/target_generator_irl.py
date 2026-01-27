@@ -7,7 +7,7 @@ import cv2
 from cv_bridge import CvBridge
 from std_msgs.msg import Float64MultiArray, Int32, Bool
 from geometry_msgs.msg import Point
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import Image, CameraInfo
 from dual_arms_msgs.msg import Brick
 
 class VisualServoManager(Node):
@@ -16,16 +16,15 @@ class VisualServoManager(Node):
         self.bridge = CvBridge()
         
         # --- CONFIGURATION ---
-        self.declare_parameter('desired_depth', 0.3)
+        self.declare_parameter('desired_depth', 0.2)
         self.declare_parameter('box_scale_multiplier', 1.0)
         self.declare_parameter('smart_orientation_check', True)
         self.declare_parameter('hand_eye_offset', 0.090556) # The 0.085 offset
         
-        # --- HARDCODED CAMERA INTRINSICS ---
-        self.fx = 190.68; self.fy = 190.68
-        self.cx = 320.0;  self.cy = 240.0
-        self.K = np.array([[self.fx, 0.0, self.cx], [0.0, self.fy, self.cy], [0.0, 0.0, 1.0]])
-        self.D = np.zeros(4) 
+        # --- CAMERA INTRINSICS STATE ---
+        self.camera_info_received = False
+        self.K = np.eye(3)
+        self.D = np.zeros(4)
 
         # Brick Dimensions
         self.brick_config = {
@@ -58,6 +57,7 @@ class VisualServoManager(Node):
         self.create_subscription(Brick, '/mission/target_brick', self.cb_mission, 10)
         self.create_subscription(Int32, '/grasp/target_index', self.cb_grasp_trigger, 10)
         self.create_subscription(Image, '/cameraAR4/image_raw', self.cb_image, 10)
+        self.info_sub = self.create_subscription(CameraInfo, '/cameraAR4/camera_info', self.camera_info_callback, 10)
         self.create_subscription(Float64MultiArray, '/feature_coordinates_6D', self.cb_raw_features, 10)
         self.create_subscription(Float64MultiArray, '/visual_servo/shifted_features', self.cb_shifted_features, 10)
         self.create_subscription(Point, '/test/fake_grasp', self.cb_test_grasp, 10)
@@ -68,7 +68,15 @@ class VisualServoManager(Node):
         self.reset_roi_pub = self.create_publisher(Bool, '/visual_servo/reset_roi', 10)
         
         self.create_timer(0.1, self.timer_callback)
-        self.get_logger().info("Target Generator Online. Logic: Fixed Rotation + Dynamic Offset.")
+        self.get_logger().info("Target Generator Online. Dynamic Intrinsics + Fixed Rot Logic.")
+
+    def camera_info_callback(self, msg):
+        """ Updates Intrinsics from Topic """
+        if not self.camera_info_received:
+            self.K = np.array(msg.k).reshape(3, 3)
+            self.D = np.array(msg.d)[:4]
+            self.camera_info_received = True
+            self.get_logger().info(f"Camera Info Received. ProjectPoints ready.")
 
     def cb_image(self, msg):
         try: self.latest_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
@@ -102,6 +110,7 @@ class VisualServoManager(Node):
         self.test_mode_active = True
         self.target_computed = False
 
+    # --- DETERMINE POSE ---
     def determine_pose_config(self):
         """ 
         Returns: (Rotation_Angle, Offset_Sign, Success)
@@ -146,6 +155,7 @@ class VisualServoManager(Node):
                 
         return rotation, sign, True
 
+    # --- UPDATED LOGIC: GENERATE FEATURES ---
     def get_linear_features(self, L, W, angle_rad):
         Z = self.get_parameter('desired_depth').value
         scale = self.get_parameter('box_scale_multiplier').value
@@ -168,8 +178,10 @@ class VisualServoManager(Node):
         # 2. Apply Offset (Sign * Base_Value)
         final_off_y = offset_sign * base_offset
         
+        # Apply offset to Y only (as per original hardcoded logic)
         final_points_3d = rotated_corners + np.array([0.0, final_off_y, Z])
         
+        # USE LOADED MATRICES (Dynamic)
         pixel_coords, _ = cv2.projectPoints(final_points_3d, np.zeros(3), np.zeros(3), self.K, self.D)
         feats_pix = pixel_coords.reshape(-1, 2)
         
@@ -191,6 +203,9 @@ class VisualServoManager(Node):
         self.debug_pub.publish(msg)
 
     def timer_callback(self):
+        if not self.camera_info_received:
+            return
+
         if self.latest_image is not None:
             try: debug_img = cv2.fisheye.undistortImage(self.latest_image, self.K, self.D, Knew=self.K, new_size=(640, 480))
             except: debug_img = self.latest_image.copy()

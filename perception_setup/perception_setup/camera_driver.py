@@ -105,9 +105,9 @@ class CameraPublisher(Node):
         super().__init__('camera_publisher')
         
         self.declare_parameter('rtsp_url', 'rtsp://10.42.0.202:554')
-        self.declare_parameter('topic_name', '/camera/image_raw')
+        self.declare_parameter('topic_name', '/cameraAR4/image_raw')
         self.declare_parameter('publish_rate_hz', 20.0)
-        self.declare_parameter('frame_id', 'camera_optical_frame')
+        self.declare_parameter('frame_id', 'cameraAR4_optical_frame')
         self.declare_parameter('camera_info_url', 'file:///home/omar-magdy/gp_ws/fisheye.yaml')
 
         # Get Parameters

@@ -11,7 +11,7 @@ class AreaDepthEstimator(Node):
         super().__init__('area_depth_estimator')
 
         # --- Parameters ---
-        self.declare_parameter('desired_depth', 0.2) 
+        self.declare_parameter('desired_depth', 0.3) 
         self.declare_parameter('desired_feature_area', 7056.9) 
         self.declare_parameter('smoothing_factor', 0.2)
 
