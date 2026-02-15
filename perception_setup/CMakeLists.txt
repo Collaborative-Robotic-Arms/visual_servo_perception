@@ -71,6 +71,7 @@ install(PROGRAMS
   perception_setup/camera_driver.py
   perception_setup/depth_estimation.py
   perception_setup/feature_detection_fisheye.py
+  perception_setup/feature_detection_fisheye_debug.py
   perception_setup/feature_detection_fisheye_irl.py
   perception_setup/target_generator.py
   perception_setup/target_generator_irl.py
@@ -79,6 +80,8 @@ install(PROGRAMS
   perception_setup/grasp_shifting_node.py
   perception_setup/grasp_shifting_node_irl.py
   perception_setup/visualizer.py
+  perception_setup/ground_truth.py
+  perception_setup/segmentation_debugger.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

@@ -1,127 +1,101 @@
-#! /usr/bin/env python3
-
+#!/usr/bin/env python3
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import Float64, Float64MultiArray
+from std_msgs.msg import Float64MultiArray, Float64
+from dual_arms_msgs.msg import Brick 
 import numpy as np
-import time
+import cv2
 
-class AreaDepthEstimator(Node):
+class PnPDepthEstimator(Node):
     def __init__(self):
-        super().__init__('area_depth_estimator')
+        super().__init__('depth_estimation_pnp')
 
-        # --- Parameters ---
-        self.declare_parameter('desired_depth', 0.3) 
-        self.declare_parameter('desired_feature_area', 7056.9) 
-        self.declare_parameter('smoothing_factor', 0.2)
+        # --- 1. CONFIGURATION: INTRINSICS ---
+        # Validated f=190.68 from simulation
+        self.fx = 190.68
+        self.fy = 190.68
+        self.cx = 320.0
+        self.cy = 240.0
+        self.camera_matrix = np.array([
+            [self.fx, 0, self.cx],
+            [0, self.fy, self.cy],
+            [0, 0, 1]
+        ], dtype=np.float32)
 
-        # --- State ---
-        self.current_depth_estimate = self.get_parameter('desired_depth').value
-        self.dynamic_desired_area = self.get_parameter('desired_feature_area').value
-        
-        # Logging State
-        self.last_logged_desired_area = 0.0
+        # --- 2. CONFIGURATION: BRICK GEOMETRY ---
+        def make_rect(dims):
+            L, W = dims
+            return np.array([
+                [-L/2, -W/2, 0], [ L/2, -W/2, 0],
+                [ L/2,  W/2, 0], [-L/2,  W/2, 0]
+            ], dtype=np.float32)
 
-        # --- Subscribers ---
-        self.feature_sub = self.create_subscription(
-            Float64MultiArray, '/feature_coordinates_6D', self.feature_callback, 10)
-        
-        self.desired_features_sub = self.create_subscription(
-            Float64MultiArray, '/visual_servo/desired_features', self.desired_features_callback, 10)
-        
-        # --- Publisher ---
+        # Updated to match your confirmation (0.06, 0.06 for 255)
+        self.brick_geometries = {
+            Brick.I_BRICK: make_rect((0.058, 0.030)),
+            Brick.L_BRICK: make_rect((0.060, 0.060)),
+            Brick.T_BRICK: make_rect((0.090, 0.030)),
+            Brick.Z_BRICK: make_rect((0.120, 0.090)),
+            255:           make_rect((0.060, 0.060)) 
+        }
+
+        # Default State
+        self.current_obj_points = self.brick_geometries[Brick.L_BRICK]
+        self.current_brick_id = Brick.L_BRICK
+
+        # --- SUBSCRIBERS & PUBLISHERS ---
+        self.create_subscription(Brick, '/mission/target_brick', self.cb_mission, 10)
+        self.create_subscription(Float64MultiArray, '/feature_coordinates_6D', self.cb_features, 10)
         self.depth_pub = self.create_publisher(Float64, '/camera_to_brick_depth', 10)
-        
-        # Initial Log
-        self.get_logger().info('Depth Estimator Online.')
 
-    def desired_features_callback(self, msg):
-        """Calculates area of the DESIRED polygon to set the scale"""
-        if not msg.data: return
-        
-        area = self.calculate_area_from_flat_list(msg.data)
-        
-        if area > 100.0:
-            self.dynamic_desired_area = area
-            
-            # --- LOGGING ---
-            # Only log if the desired area has changed significantly (avoid spamming)
-            if abs(self.dynamic_desired_area - self.last_logged_desired_area) > 1.0:
-                self.get_logger().info(f"TARGET UPDATED: Desired Area set to {area:.1f} pixels²")
-                self.last_logged_desired_area = self.dynamic_desired_area
+        self.get_logger().info("PnP Depth Online. Double-Undistortion Logic Removed.")
 
-    def feature_callback(self, msg):
-        # Start Clock
-        t_start = time.perf_counter()
+    def cb_mission(self, msg):
+        if msg.type in self.brick_geometries:
+            self.current_obj_points = self.brick_geometries[msg.type]
+            self.current_brick_id = msg.type
+        else:
+            self.get_logger().warn(f"Unknown Brick ID: {msg.type}.")
 
-        data = msg.data 
-        if not data:
-            self.get_logger().info("WAITING FOR FEATURES...", throttle_duration_sec=2.0)
-            return
+    def sort_corners(self, pts):
+        """Sorts 2D points to match 3D order: TL, TR, BR, BL"""
+        s = pts.sum(axis=1)
+        tl = pts[np.argmin(s)]
+        br = pts[np.argmax(s)]
+        diff = np.diff(pts, axis=1)
+        tr = pts[np.argmin(diff)]
+        bl = pts[np.argmax(diff)]
+        return np.array([tl, tr, br, bl], dtype=np.float32)
 
-        # --- OPTIMIZED AREA CALCULATION ---
-        area = self.calculate_area_from_flat_list(data)
+    def cb_features(self, msg):
+        if len(msg.data) < 8: return 
 
-        # Safety Check
-        if area < 100.0: 
-            return
+        # Incoming points are ALREADY LINEAR from feature_detection_fisheye.py
+        # DO NOT UNDISTORT AGAIN.
+        raw_pixels = np.array(msg.data).reshape(-1, 2)
+        if len(raw_pixels) != 4: return
 
-        # --- DEPTH ESTIMATION ---
-        Z_des = self.get_parameter('desired_depth').value
-        Area_des = self.dynamic_desired_area
-        alpha = self.get_parameter('smoothing_factor').value
+        # 1. Sort
+        sorted_pixels = self.sort_corners(raw_pixels)
 
-        # Depth Law: Z = Z* sqrt(A* / A)
-        raw_depth_estimate = Z_des * (Area_des / area)**0.5
-
-        # Low Pass Filter
-        self.current_depth_estimate = (alpha * raw_depth_estimate) + ((1 - alpha) * self.current_depth_estimate)
-
-        # --- PUBLISH ---
-        msg_out = Float64()
-        msg_out.data = self.current_depth_estimate
-        self.depth_pub.publish(msg_out)
-
-        # Stop Clock
-        t_end = time.perf_counter()
-        dt_ms = (t_end - t_start) * 1000.0
-
-        # --- LOGGING ---
-        # Throttled log to show performance without flooding
-        self.get_logger().info(
-            f"ESTIMATION | Area: {area:.0f}/{Area_des:.0f} | Depth: {self.current_depth_estimate:.3f}m | Calc: {dt_ms:.2f}ms", 
-            throttle_duration_sec=0.5
+        # 2. Solve PnP
+        success, rvec, tvec = cv2.solvePnP(
+            self.current_obj_points, 
+            sorted_pixels, 
+            self.camera_matrix, 
+            np.zeros(4),
+            flags=cv2.SOLVEPNP_ITERATIVE
         )
 
-    def calculate_area_from_flat_list(self, data):
-        """Helper to calculate area from [x0, y0, x1, y1...]"""
-        area = 0.0
-        if len(data) == 8:
-            # Fast Shoelace for 4 points
-            x0, y0 = data[0], data[1]
-            x1, y1 = data[2], data[3]
-            x2, y2 = data[4], data[5]
-            x3, y3 = data[6], data[7]
-            term1 = x0*y1 + x1*y2 + x2*y3 + x3*y0
-            term2 = y0*x1 + y1*x2 + y2*x3 + y3*x0
-            area = 0.5 * abs(term1 - term2)
-        else:
-            # Generic
-            if len(data) % 2 != 0 or len(data) < 6: return 0.0
-            points = np.array(data).reshape(-1, 2)
-            x = points[:, 0]
-            y = points[:, 1]
-            x_shift = np.roll(x, -1)
-            y_shift = np.roll(y, -1)
-            area = 0.5 * np.abs(np.dot(x, y_shift) - np.dot(y, x_shift))
-        return area
+        if success:
+            z_depth = float(tvec[2][0]) # Access the scalar value explicitly
+            out = Float64()
+            out.data = abs(z_depth)
+            self.depth_pub.publish(out)
 
 def main(args=None):
     rclpy.init(args=args)
-    node = AreaDepthEstimator()
-    rclpy.spin(node)
-    node.destroy_node()
+    rclpy.spin(PnPDepthEstimator())
     rclpy.shutdown()
 
-if __name__ == '__main__':
-    main()
+if __name__ == '__main__': main()

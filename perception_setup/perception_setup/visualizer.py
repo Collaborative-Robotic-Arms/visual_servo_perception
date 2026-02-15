@@ -1,99 +1,79 @@
 #!/usr/bin/env python3
 import rclpy
 from rclpy.node import Node
-import numpy as np
-from std_msgs.msg import Float64MultiArray, Float64
-from visualization_msgs.msg import Marker, MarkerArray
-from geometry_msgs.msg import Point
+import cv2
+from cv_bridge import CvBridge
+from sensor_msgs.msg import Image
+from std_msgs.msg import Float64MultiArray
 
-class VSVisualizer(Node):
+class VSOverlayNode(Node):
     def __init__(self):
-        super().__init__('vs_visualizer')
+        super().__init__('vs_overlay_node')
+        self.bridge = CvBridge()
         
-        # Camera Intrinsics (Must match your controller)
-        self.f_sim = 190.68
-        self.cx, self.cy = 320.0, 240.0
-        
-        # State
-        self.current_depth = 0.3
-        self.target_depth = 0.2
+        # Internal State for Features
+        self.current_features = []
+        self.desired_features = []
         
         # Subscribers
-        self.create_subscription(Float64MultiArray, '/visual_servo/desired_features', self.cb_desired, 10)
-        self.create_subscription(Float64MultiArray, '/visual_servo/shifted_features', self.cb_current, 10)
-        self.create_subscription(Float64, '/camera_to_brick_depth', self.cb_depth, 10)
+        self.create_subscription(Image, 'cameraAR4/image_raw', self.image_callback, 10)
+        self.create_subscription(Float64MultiArray, '/visual_servo/shifted_features', self.current_cb, 10)
+        self.create_subscription(Float64MultiArray, '/visual_servo/desired_features', self.desired_cb, 10)
         
-        # Publisher
-        self.marker_pub = self.create_publisher(MarkerArray, '/visual_servo/rviz_markers', 10)
+        # Publisher for the annotated feed
+        self.image_pub = self.create_publisher(Image, '/visual_servo/annotated_feed', 10)
         
-        self.get_logger().info("RViz Visualizer Online. Add /visual_servo/rviz_markers (MarkerArray) in RViz.")
+        self.get_logger().info("Visual Servo Overlay Node Online.")
 
-    def cb_depth(self, msg):
-        self.current_depth = msg.data
+    def current_cb(self, msg):
+        self.current_features = list(msg.data)
 
-    def project_to_3d(self, pixels, z):
-        """Projects pixels back to ar4_ee_link 3D space"""
-        pts_3d = []
-        for i in range(0, len(pixels), 2):
-            u, v = pixels[i], pixels[i+1]
-            x = (u - self.cx) * z / self.f_sim
-            y = (v - self.cy) * z / self.f_sim
-            pts_3d.append([x, y, z])
-        return pts_3d
+    def desired_cb(self, msg):
+        self.desired_features = list(msg.data)
 
-    def create_markers(self, pts, color, ns, is_line=True):
-        markers = []
-        # Points/IDs
-        for i, pt in enumerate(pts):
-            m = Marker()
-            m.header.frame_id = "ar4_ee_link"
-            m.header.stamp = self.get_clock().now().to_msg()
-            m.ns = f"{ns}_ids"
-            m.id = i
-            m.type = Marker.TEXT_VIEW_FACING
-            m.action = Marker.ADD
-            m.pose.position.x, m.pose.position.y, m.pose.position.z = pt[0], pt[1], pt[2]
-            m.scale.z = 0.02
-            m.color.r, m.color.g, m.color.b, m.color.a = color
-            m.text = str(i)
-            markers.append(m)
+    def draw_features(self, img, features, color, label):
+        if not features:
+            return img
+        
+        points = []
+        # Features are likely [u1, v1, u2, v2...]
+        for i in range(0, len(features), 2):
+            u, v = int(features[i]), int(features[i+1])
+            points.append((u, v))
+            # Draw point and ID
+            cv2.circle(img, (u, v), 4, color, -1)
+            cv2.putText(img, f"{label}_{i//2}", (u+5, v-5), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
 
-        # Polygon Lines
-        if is_line:
-            line = Marker()
-            line.header.frame_id = "ar4_ee_link"
-            line.type = Marker.LINE_STRIP
-            line.action = Marker.ADD
-            line.ns = f"{ns}_lines"
-            line.id = 100
-            line.scale.x = 0.005
-            line.color.r, line.color.g, line.color.b, line.color.a = color
-            for pt in pts:
-                p = Point()
-                p.x, p.y, p.z = pt[0], pt[1], pt[2]
-                line.points.append(p)
-            # Close the loop
-            p_start = Point()
-            p_start.x, p_start.y, p_start.z = pts[0][0], pts[0][1], pts[0][2]
-            line.points.append(p_start)
-            markers.append(line)
-        return markers
+        # Draw connecting lines (Polygon)
+        if len(points) > 1:
+            for j in range(len(points)):
+                cv2.line(img, points[j], points[(j+1)%len(points)], color, 2)
+        return img
 
-    def cb_desired(self, msg):
-        pts = self.project_to_3d(msg.data, self.target_depth)
-        ma = MarkerArray()
-        ma.markers = self.create_markers(pts, (1.0, 1.0, 0.0, 1.0), "goal") # Yellow
-        self.marker_pub.publish(ma)
+    def image_callback(self, msg):
+        # Convert ROS Image to OpenCV
+        cv_img = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
 
-    def cb_current(self, msg):
-        pts = self.project_to_3d(msg.data, self.current_depth)
-        ma = MarkerArray()
-        ma.markers = self.create_markers(pts, (0.0, 1.0, 0.0, 1.0), "current") # Green
-        self.marker_pub.publish(ma)
+        # Draw Desired Features (Yellow)
+        cv_img = self.draw_features(cv_img, self.desired_features, (0, 255, 255), "goal")
+        
+        # Draw Current Features (Green)
+        cv_img = self.draw_features(cv_img, self.current_features, (0, 255, 0), "curr")
+
+        # Add a legend/status
+        cv2.putText(cv_img, "Green: Current | Yellow: Goal", (10, 30), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+
+        # Convert back to ROS and publish
+        self.image_pub.publish(self.bridge.cv2_to_imgmsg(cv_img, encoding='bgr8'))
 
 def main():
     rclpy.init()
-    rclpy.spin(VSVisualizer())
+    node = VSOverlayNode()
+    rclpy.spin(node)
+    node.destroy_node()
     rclpy.shutdown()
 
-if __name__ == '__main__': main()
+if __name__ == '__main__':
+    main()

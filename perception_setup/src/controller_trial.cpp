@@ -34,11 +34,10 @@ public:
         this->declare_parameter("gain_yaw", 0.6); 
 
         // Z-Axis Params
-        this->declare_parameter("target_depth", 0.3);
-        this->declare_parameter("lambda_z_0", 0.01);   
-        this->declare_parameter("lambda_z_inf", 0.1); 
-        this->declare_parameter("beta_z", 2.0); 
-        
+        this->declare_parameter("deadband_z", 0.002); 
+        this->declare_parameter("gain_z", 1.5);
+        this->declare_parameter("target_depth", 0.2);
+
         // Logging
         this->declare_parameter("enable_logging", true);
         this->declare_parameter("log_file_path", "/home/omar-magdy/vs_log.csv");
@@ -171,15 +170,17 @@ private:
         double v_target_x = (-err_u * kp) + (-sum_err_u_ * ki) + (-d_err_u * kd);
         double v_target_y = (-err_v * kp) + (-sum_err_v_ * ki) + (-d_err_v * kd);
 
-        double area_curr = calculateArea();
-        double area_des = calculateDesiredArea();
-        double area_err = (area_des - area_curr) / area_des;
+        double target_Z = this->get_parameter("target_depth").as_double();
+        double depth_err = current_depth_z_ - target_Z;
         
-        double l_z_0 = this->get_parameter("lambda_z_0").as_double();
-        double l_z_inf = this->get_parameter("lambda_z_inf").as_double();
-        double b_z = this->get_parameter("beta_z").as_double();
-        double lambda_z = (l_z_0 - l_z_inf) * std::exp(-b_z * std::abs(area_err)) + l_z_inf;
-        double v_target_z = area_err * lambda_z;
+        double gain_z = this->get_parameter("gain_z").as_double(); 
+        double v_target_z = -gain_z * depth_err;
+
+        // 3. Deadband (Optional Stability)
+        // If we are within 2mm, stop moving Z to prevent jitter
+        if (std::abs(depth_err) < this->get_parameter("deadband_z").as_double()) {
+            v_target_z = 0.0;
+        }
 
         double w_target_z = v_visp[5] * this->get_parameter("gain_yaw").as_double();
 
@@ -206,7 +207,7 @@ private:
         auto tw = std::make_unique<geometry_msgs::msg::TwistStamped>();
         tw->header.stamp = now;
         tw->header.frame_id = cam_frame_id_; 
-        tw->twist.linear.x = v_out_x; tw->twist.linear.y = v_out_y; tw->twist.linear.z = v_out_z; 
+        tw->twist.linear.x = v_out_x; tw->twist.linear.y = v_out_y; tw->twist.linear.z = -v_out_z; 
         tw->twist.angular.z = w_out_z;
 
         velocity_pub_->publish(std::move(tw));
@@ -217,8 +218,8 @@ private:
         // --- DEBUG PRINTS (RESTORED) ---
         // Prints status every 0.5 seconds to the terminal
         RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 500,
-            "ERR: %.2f | AreaErr: %.3f | Vz_cmd: %.3f |  Vx_cmd: %.3f |  Vy_cmd: %.3f | Depth: %.3f" , 
-            err_norm, area_err, v_out_z, v_out_x, v_out_y, current_depth_z_);
+            "ERR: %.2f | DepthErr: %.3f | Vz_cmd: %.3f |  Vx_cmd: %.3f |  Vy_cmd: %.3f | Depth: %.3f" , 
+            err_norm, depth_err, v_out_z, v_out_x, v_out_y, current_depth_z_);
 
         if (log_file_.is_open()) {
             log_file_ << (now - start_time_).seconds() << "," << err_norm << "," 
