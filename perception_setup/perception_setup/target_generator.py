@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 import numpy as np
 import math
 import cv2
@@ -57,7 +58,7 @@ class VisualServoManager(Node):
         # --- SUBSCRIBERS ---
         self.create_subscription(Brick, '/mission/target_brick', self.cb_mission, 10)
         self.create_subscription(Int32, '/grasp/target_index', self.cb_grasp_trigger, 10)
-        self.create_subscription(Image, '/cameraAR4/image_raw', self.cb_image, 10)
+        self.create_subscription(Image, '/cameraAR4/image_raw', self.cb_image, qos_profile_sensor_data)
         self.create_subscription(Float64MultiArray, '/feature_coordinates_6D', self.cb_raw_features, 10)
         self.create_subscription(Float64MultiArray, '/visual_servo/shifted_features', self.cb_shifted_features, 10)
         self.create_subscription(Point, '/test/fake_grasp', self.cb_test_grasp, 10)

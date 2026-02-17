@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 from std_msgs.msg import Float64MultiArray
 from geometry_msgs.msg import Point
 from vision_msgs.msg import Detection2DArray
@@ -46,8 +47,7 @@ class BricksHomography(Node):
         self.last_img_env = None
         self.last_img_arm = None
         self.create_subscription(Image, '/environment_camera/image_raw', self.cb_img_env, 10)
-        self.create_subscription(Image, '/cameraAR4/image_raw', self.cb_img_arm, 10)
-
+        self.create_subscription(Image, '/cameraAR4/image_raw', self.image_callback, qos_profile_sensor_data)
         # --- PUBLISHERS ---
         self.grasp_trans_pub = self.create_publisher(Point, '/grasp/pixel_coords_transformed', 10)
         self.debug_pub = self.create_publisher(Image, '/homography/debug_view', 10)

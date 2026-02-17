@@ -49,7 +49,7 @@ class VisualServoDebugger(Node):
         self.bridge = CvBridge()
 
         self.create_subscription(Pose, self.get_parameter('gt_topic').value, self.cb_gt_pose, qos_profile_sensor_data)
-        self.create_subscription(Image, '/cameraAR4/image_raw', self.cb_image, 10)
+        self.create_subscription(Image, '/cameraAR4/image_raw', self.cb_image, qos_profile_sensor_data)
         self.create_subscription(Float64, '/camera_to_brick_depth', self.cb_depth, 10)
         self.debug_pub = self.create_publisher(Image, '/ground_truth/debug_view', 10)
 

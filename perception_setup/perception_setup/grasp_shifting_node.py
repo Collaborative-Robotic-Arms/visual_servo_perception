@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 from std_msgs.msg import Float64MultiArray
 from geometry_msgs.msg import Point
 from sensor_msgs.msg import Image
@@ -39,7 +40,7 @@ class GraspShiftingNode(Node):
         self.latest_image = None
 
         # --- SUBSCRIBERS ---
-        self.create_subscription(Float64MultiArray, '/feature_coordinates_6D', self.cb_current_corners, 10)
+        self.create_subscription(Float64MultiArray, '/feature_coordinates_6D', self.cb_current_corners, qos_profile_sensor_data)
         self.create_subscription(Point, '/grasp/pixel_coords_transformed', self.cb_transformed_grasp, 10)
         self.create_subscription(Brick, '/mission/target_brick', self.cb_mission, 10)
         self.create_subscription(Image, '/cameraAR4/image_raw', self.cb_image, 10)
