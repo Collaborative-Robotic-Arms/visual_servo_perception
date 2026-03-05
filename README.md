@@ -5,9 +5,12 @@
 ![Python](https://img.shields.io/badge/Python-3.10-3776AB?logo=python)
 ![Gazebo](https://img.shields.io/badge/Simulation-Gazebo-FFB500?logo=gazebo)
 
-> **Note:** A video demonstration of the dual-arm simulation and visual servoing pipeline can be found here: [Insert Link to YouTube/LinkedIn Video]
+> **Note:** A video demonstration of the dual-arm simulation and visual servoing pipeline can be found here: 
 
-https://github.com/user-attachments/assets/ed57de71-15a6-4d2e-9d5c-0abc3e6d334b
+
+https://github.com/user-attachments/assets/727ff474-98db-43d0-8e21-b0c8f7cebb4b
+
+
 
 ## 📌 Project Overview
 
